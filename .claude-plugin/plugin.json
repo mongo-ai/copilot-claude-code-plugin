@@ -1,0 +1,9 @@
+{
+  "name": "copilot",
+  "version": "0.2.0",
+  "description": "Use GitHub Copilot CLI models (GPT-5.4, Claude Opus 4.6, GPT-5.3-Codex, etc.) from Claude Code for cross-model code reviews, multi-model council reviews, and task delegation.",
+  "author": {
+    "name": "Conor Mongan"
+  },
+  "license": "Apache-2.0"
+}
