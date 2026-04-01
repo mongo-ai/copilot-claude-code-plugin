@@ -1,0 +1,10 @@
+{
+  "name": "copilot-claude-code-plugin",
+  "description": "GitHub Copilot CLI integration for Claude Code",
+  "plugins": [
+    {
+      "name": "copilot",
+      "path": "."
+    }
+  ]
+}
