@@ -15,6 +15,8 @@ const DEFAULTS = {
   "default-model": "gpt-5.4",
   "default-effort": "high",
   "copilot-binary": "auto",
+  "review-gate": "off",
+  "review-gate-model": "gpt-5.4-mini",
 };
 
 /**

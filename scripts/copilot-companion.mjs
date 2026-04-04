@@ -6,6 +6,7 @@
  * Usage:
  *   node scripts/copilot-companion.mjs setup [--json]
  *   node scripts/copilot-companion.mjs review [--base <ref>] [--model <model>] [--effort <level>]
+ *   node scripts/copilot-companion.mjs adversarial-review [--base <ref>] [--model <model>] [--effort <level>] [focus]
  *   node scripts/copilot-companion.mjs council [--models <m1,m2,m3>] [--effort <level>]
  *   node scripts/copilot-companion.mjs delegate [--model <model>] [--effort <level>] [prompt]
  *   node scripts/copilot-companion.mjs status [job-id]
@@ -181,6 +182,88 @@ Provide a structured review with severity levels (critical/warning/info) for eac
       console.error("Copilot authentication failed. Run `!copilot login` to authenticate.");
     } else {
       console.error(`Review failed: ${result.stderr}`);
+    }
+    process.exitCode = result.code;
+    return;
+  }
+
+  console.log(result.stdout);
+}
+
+async function handleAdversarialReview(argv, cwd) {
+  const { options, positionals } = parseArgs(argv);
+  const workspaceRoot = isGitRepo(cwd) ? getRepoRoot(cwd) : cwd;
+  const binary = findCopilotBinary(getConfiguredBinary(workspaceRoot));
+
+  if (!binary) {
+    console.error("Copilot CLI not found. Run /copilot:setup first.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!isGitRepo(cwd)) {
+    console.error("Not inside a git repository.");
+    process.exitCode = 1;
+    return;
+  }
+
+  const model = options.model ?? getDefaultModel(workspaceRoot);
+  const effort = options.effort ?? getDefaultEffort(workspaceRoot);
+  const base = options.base;
+  const focus = positionals.join(" ").trim();
+
+  const { diff, stat } = getDiffContext(cwd, base);
+
+  if (!diff && !getStatus(cwd)) {
+    console.log("Nothing to review — no changes detected.");
+    return;
+  }
+
+  const adversarialPrompt = `You are a skeptical senior architect conducting a challenge review. Your job is NOT to find implementation bugs — it's to question whether the approach itself is right.
+
+Challenge the code on:
+- **Design choices** — Is this the right abstraction? Is this the right layer for this logic? Would a different pattern be simpler or more maintainable?
+- **Architecture tradeoffs** — What does this approach sacrifice? What breaks if requirements change? Where does this create coupling?
+- **Assumptions** — What is this code assuming about the environment, data shape, or usage patterns? Are those assumptions safe?
+- **Missing alternatives** — Was a simpler approach considered? Is this over-engineered or under-engineered?
+- **Failure modes** — Not just "add error handling" but "what happens to the system when this fails at 3am?"
+
+Be direct and opinionated. Take a position. "This should be X instead of Y because Z."
+Don't just list concerns — rank them by impact and argue for the most important changes.
+${focus ? `\nFocus area requested by reviewer: ${focus}\n` : ""}
+${base ? `Changes from ${base} to HEAD:` : "Working tree changes:"}
+
+${stat ? `Summary: ${stat}\n` : ""}
+\`\`\`diff
+${diff || getStatus(cwd)}
+\`\`\`
+
+Structure your review as:
+1. **Verdict** — One sentence: would you approve, request changes, or block this?
+2. **Top concerns** — Ranked by impact, with your recommended alternative
+3. **What's good** — Acknowledge sound decisions (briefly)
+4. **Questions for the author** — Things you'd ask in a real review`;
+
+  process.stderr.write(`Running adversarial review with ${model} (effort: ${effort})...\n`);
+
+  const result = await runCopilotPrompt(cwd, {
+    prompt: adversarialPrompt,
+    model,
+    effort,
+    binaryPath: binary.path,
+  });
+
+  if (result.timedOut) {
+    console.error(`Adversarial review timed out after ${(120_000 / 1000)}s.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (result.code !== 0 && result.stderr) {
+    if (result.stderr.includes("login") || result.stderr.includes("auth") || result.stderr.includes("unauthorized")) {
+      console.error("Copilot authentication failed. Run `!copilot login` to authenticate.");
+    } else {
+      console.error(`Adversarial review failed: ${result.stderr}`);
     }
     process.exitCode = result.code;
     return;
@@ -449,6 +532,7 @@ async function main() {
       "Usage:",
       "  node copilot-companion.mjs setup [--json]",
       "  node copilot-companion.mjs review [--base <ref>] [--model <m>] [--effort <e>]",
+      "  node copilot-companion.mjs adversarial-review [--base <ref>] [--model <m>] [--effort <e>] [focus]",
       "  node copilot-companion.mjs council [--models <m1,m2>] [--effort <e>] [--base <ref>]",
       "  node copilot-companion.mjs delegate [--model <m>] [--effort <e>] <prompt>",
       "  node copilot-companion.mjs status [job-id]",
@@ -461,6 +545,7 @@ async function main() {
   switch (subcommand) {
     case "setup": handleSetup(argv, cwd); break;
     case "review": await handleReview(argv, cwd); break;
+    case "adversarial-review": await handleAdversarialReview(argv, cwd); break;
     case "council": await handleCouncil(argv, cwd); break;
     case "delegate": await handleDelegate(argv, cwd); break;
     case "status": handleStatus(argv, cwd); break;
